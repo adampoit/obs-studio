@@ -25,6 +25,7 @@ struct image_source {
 	bool restart_gif;
 
 	gs_image_file4_t if4;
+	gs_image_file4_t if4_tmp;
 };
 
 static time_t get_modified_timestamp(const char *filename)
@@ -45,25 +46,49 @@ static void image_source_load(struct image_source *context)
 {
 	char *file = context->file;
 
-	obs_enter_graphics();
-	gs_image_file4_free(&context->if4);
-	obs_leave_graphics();
-
-	if (file && *file) {
-		debug("loading texture '%s'", file);
-		context->file_timestamp = get_modified_timestamp(file);
-		gs_image_file4_init(&context->if4, file,
-				    context->linear_alpha
-					    ? GS_IMAGE_ALPHA_PREMULTIPLY_SRGB
-					    : GS_IMAGE_ALPHA_PREMULTIPLY);
-		context->update_time_elapsed = 0;
-
+	if (!file || !*file) {
 		obs_enter_graphics();
-		gs_image_file4_init_texture(&context->if4);
+		gs_image_file4_free(&context->if4);
 		obs_leave_graphics();
 
-		if (!context->if4.image3.image2.image.loaded)
-			warn("failed to load texture '%s'", file);
+		return;
+	}
+
+	debug("loading texture '%s'", file);
+	time_t new_timestamp = get_modified_timestamp(file);
+	if (new_timestamp == -1) {
+		context->file_timestamp = new_timestamp;
+
+		obs_enter_graphics();
+		gs_image_file4_free(&context->if4);
+		obs_leave_graphics();
+
+		return;
+	}
+
+	gs_image_file4_init(&context->if4_tmp, file,
+			    context->linear_alpha
+				    ? GS_IMAGE_ALPHA_PREMULTIPLY_SRGB
+				    : GS_IMAGE_ALPHA_PREMULTIPLY);
+	context->update_time_elapsed = 0;
+
+	obs_enter_graphics();
+	gs_image_file4_init_texture(&context->if4_tmp);
+	obs_leave_graphics();
+
+	if (!context->if4_tmp.image3.image2.image.loaded) {
+		obs_enter_graphics();
+		gs_image_file4_free(&context->if4_tmp);
+		obs_leave_graphics();
+
+		warn("failed to load texture '%s'", file);
+	} else {
+		obs_enter_graphics();
+		gs_image_file4_free(&context->if4);
+		memmove(&context->if4, &context->if4_tmp,
+			sizeof(gs_image_file4_t));
+		obs_leave_graphics();
+		context->file_timestamp = new_timestamp;
 	}
 }
 
